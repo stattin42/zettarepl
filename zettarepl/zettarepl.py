@@ -3,6 +3,7 @@ from datetime import datetime
 import functools
 import logging
 import threading
+import os.path
 
 from zettarepl.dataset.relationship import is_child
 from zettarepl.observer import (notify, PeriodicSnapshotTaskStart, PeriodicSnapshotTaskSuccess,
@@ -109,12 +110,25 @@ class Zettarepl:
         for task, snapshot_name in tasks_with_snapshot_names:
             snapshot = Snapshot(task.dataset, snapshot_name)
             if snapshot in created_snapshots:
-                notify(self.observer, PeriodicSnapshotTaskSuccess(task.id))
+                # temporary removed notify line to align with 11.3-U1
+                # notify(self.observer, PeriodicSnapshotTaskSuccess(task.id))
                 continue
 
             options = notify(self.observer, PeriodicSnapshotTaskStart(task.id))
+            logger.info(f'MYSNAPSHOT Snapshot: {snapshot}')
+            if os.path.isfile('/mnt/'+snapshot.dataset+'/VM-BHYVE_MANAGED_VM'):
+                vm_bhyve_vm = True
+                logger.info(f'MYSNAPSHOT: dataset {snapshot.dataset} refers to a BHYVE VM managed with VM-BHYVE')
+            else:
+                vm_bhyve_vm = False
+            if vm_bhyve_vm:
+                logger.info(f'MYSNAPSHOT: Virtual shutdown of VM')
+
             try:
-                create_snapshot(self.local_shell, snapshot, task.recursive, task.exclude, options.properties)
+                if not vm_bhyve_vm:
+                    create_snapshot(self.local_shell, snapshot, task.recursive, task.exclude, options.properties)
+                else:
+                    logger.info(f'MYSNAPSHOT: Virtual snapshot of VM')
             except CreateSnapshotError as e:
                 logger.warning("Error creating %r: %r", snapshot, e)
 
@@ -124,6 +138,8 @@ class Zettarepl:
                 created_snapshots.add(snapshot)
 
                 notify(self.observer, PeriodicSnapshotTaskSuccess(task.id))
+            if vm_bhyve_vm:
+                logger.info(f'MYSNAPSHOT: Virtual restart of VM')
 
         empty_snapshots = get_empty_snapshots_for_deletion(self.local_shell, tasks_with_snapshot_names)
         if empty_snapshots:
